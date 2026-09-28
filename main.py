@@ -1,106 +1,143 @@
 import os
-import sys
-from datetime import datetime, timezone
-
 import requests
-
-OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/forecast"
-TELEGRAM_URL_TEMPLATE = "https://api.telegram.org/bot{token}/sendMessage"
+from datetime import datetime, timezone, timedelta
 
 
-def get_env_var(name: str, required: bool = True, default: str | None = None) -> str:
-    """Read an environment variable, raising a clear error if it's missing."""
-    value = os.environ.get(name, default)
-    if required and not value:
-        raise EnvironmentError(f"Missing required environment variable: {name}")
-    return value
+# =============================
+# Configuration
+# =============================
+
+OWM_API_KEY = os.environ["OWM_API_KEY"]
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+
+LATITUDE = 14.073080
+LONGITUDE = 98.193672
 
 
-def fetch_forecast(api_key: str, city: str) -> dict:
-    """Call the OpenWeatherMap forecast endpoint and return the parsed JSON."""
-    params = {
-        "q": city,
-        "appid": api_key,
-        "units": "metric",  # Celsius, since we're not in the US
-    }
-    response = requests.get(OPENWEATHER_URL, params=params, timeout=15)
-    response.raise_for_status()  # raises an exception for 4xx/5xx responses
-    return response.json()
+# =============================
+# Get weather forecast
+# =============================
+
+owm_endpoint = "https://api.openweathermap.org/data/2.5/forecast"
+
+parameters = {
+    "lat": LATITUDE,
+    "lon": LONGITUDE,
+    "appid": OWM_API_KEY,
+    "units": "metric",
+    "cnt": 8
+}
+
+response = requests.get(
+    url=owm_endpoint,
+    params=parameters,
+    timeout=30
+)
+
+response.raise_for_status()
+
+data = response.json()
 
 
-def filter_todays_entries(forecast_data: dict) -> list[dict]:
-    """
-    The API returns forecasts in 3-hour steps for the next 5 days.
-    We only want the entries that fall on today's date (UTC).
-    """
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    todays_entries = [
-        entry for entry in forecast_data.get("list", [])
-        if entry["dt_txt"].startswith(today_str)
-    ]
-    return todays_entries
+# =============================
+# Current time UTC+3
+# =============================
+
+utc_plus_3 = timezone(timedelta(hours=3))
+
+now = datetime.now(utc_plus_3)
+
+today = now.strftime("%A, %d %B %Y")
 
 
-def build_message(city_label: str, entries: list[dict]) -> str:
-    """Turn the list of forecast entries into a readable Telegram message."""
-    if not entries:
-        return f"⚠️ No forecast data available for {city_label} today."
+# =============================
+# Analyze forecast
+# =============================
 
-    today_str = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
-    lines = [f"🌤 Weather forecast for {city_label} — {today_str}\n"]
+current_forecast = data["list"][0]
 
-    temps = [entry["main"]["temp"] for entry in entries]
-    lines.append(f"High: {max(temps):.1f}°C | Low: {min(temps):.1f}°C\n")
+temperature = current_forecast["main"]["temp"]
+feels_like = current_forecast["main"]["feels_like"]
 
-    for entry in entries:
-        time_str = entry["dt_txt"].split(" ")[1][:5]  # "HH:MM"
-        temp = entry["main"]["temp"]
-        feels_like = entry["main"]["feels_like"]
-        description = entry["weather"][0]["description"].capitalize()
-        humidity = entry["main"]["humidity"]
-        wind_speed = entry["wind"]["speed"]
+weather_description = (
+    current_forecast["weather"][0]["description"].capitalize()
+)
 
-        lines.append(
-            f"{time_str} UTC — {description}, {temp:.1f}°C "
-            f"(feels like {feels_like:.1f}°C), humidity {humidity}%, "
-            f"wind {wind_speed} m/s"
+humidity = current_forecast["main"]["humidity"]
+
+
+will_rain = False
+rain_times = []
+
+
+for forecast in data["list"]:
+
+    weather_code = forecast["weather"][0]["id"]
+
+    if 200 <= weather_code < 600:
+
+        will_rain = True
+
+        forecast_time = datetime.fromtimestamp(
+            forecast["dt"],
+            tz=timezone.utc
+        ).astimezone(utc_plus_3)
+
+        rain_times.append(
+            forecast_time.strftime("%H:%M")
         )
 
-    return "\n".join(lines)
+
+# =============================
+# Create Telegram message
+# =============================
+
+if will_rain:
+
+    rain_text = (
+        "🌧️ Rain is expected.\n"
+        f"Possible times: {', '.join(rain_times)}"
+    )
+
+else:
+
+    rain_text = "☀️ No rain is expected."
 
 
-def send_telegram_message(bot_token: str, chat_id: str, text: str) -> None:
-    """Send a text message through the Telegram Bot API."""
-    url = TELEGRAM_URL_TEMPLATE.format(token=bot_token)
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-    }
-    response = requests.post(url, data=payload, timeout=15)
-    response.raise_for_status()
+message = f"""🌤️ Daily Weather Report
+
+📅 {today}
+
+🌡️ Temperature: {temperature:.1f}°C
+🤗 Feels like: {feels_like:.1f}°C
+💧 Humidity: {humidity}%
+🌤️ Condition: {weather_description}
+
+{rain_text}
+"""
 
 
-def main() -> None:
-    try:
-        api_key = get_env_var("OWM_API_KEY")
-        bot_token = get_env_var("TELEGRAM_BOT_TOKEN")
-        chat_id = get_env_var("TELEGRAM_CHAT_ID")
-        city = get_env_var("CITY_NAME", required=False, default="Erbil,IQ")
+# =============================
+# Send Telegram message
+# =============================
 
-        forecast_data = fetch_forecast(api_key, city)
-        todays_entries = filter_todays_entries(forecast_data)
-        message = build_message(city, todays_entries)
+telegram_endpoint = (
+    f"https://api.telegram.org/bot"
+    f"{TELEGRAM_BOT_TOKEN}/sendMessage"
+)
 
-        send_telegram_message(bot_token, chat_id, message)
-        print("Message sent successfully.")
+telegram_parameters = {
+    "chat_id": TELEGRAM_CHAT_ID,
+    "text": message
+}
 
-    except requests.exceptions.RequestException as e:
-        print(f"Network/API error: {e}", file=sys.stderr)
-        sys.exit(1)
-    except EnvironmentError as e:
-        print(f"Configuration error: {e}", file=sys.stderr)
-        sys.exit(1)
+telegram_response = requests.get(
+    url=telegram_endpoint,
+    params=telegram_parameters,
+    timeout=30
+)
 
+telegram_response.raise_for_status()
 
-if __name__ == "__main__":
-    main()
+print("Weather report sent successfully.")
