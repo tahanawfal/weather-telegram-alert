@@ -8,8 +8,8 @@ from datetime import datetime, timezone, timedelta
 # =============================
 
 OWM_API_KEY = os.environ["OWM_API_KEY"]
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+TELEGRAM_BOT_TOKEN = os.environ["BOT_TOKEN"]
+TELEGRAM_CHAT_ID = os.environ["CHAT_ID"]
 
 LATITUDE = 14.073080
 LONGITUDE = 98.193672
