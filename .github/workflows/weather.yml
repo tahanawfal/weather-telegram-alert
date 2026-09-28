@@ -1,16 +1,19 @@
-name: Weather Telegram Alert
+name: Daily Weather Report
 
 on:
   workflow_dispatch:
 
   schedule:
+    # 05:00 UTC = 08:00 UTC+3
     - cron: "0 5 * * *"
 
 jobs:
-  weather-check:
+  weather-report:
+
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -23,7 +26,7 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run weather check
+      - name: Run weather report
         env:
           OWM_API_KEY: ${{ secrets.OWM_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
