@@ -1,11 +1,9 @@
 name: Daily Weather Report
 
 on:
-  workflow_dispatch:
-
   schedule:
-    # 05:00 UTC = 08:00 UTC+3
     - cron: "0 5 * * *"
+  workflow_dispatch:
 
 jobs:
   weather-report:
